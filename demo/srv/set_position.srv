@@ -1,0 +1,5 @@
+# FloatArrayService.srv
+int32 type
+float32[] value
+---
+bool response

@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="cup_detect" type="cup_detect.py" name="cup_detect_node" output="screen">
+  </node>
+</launch>

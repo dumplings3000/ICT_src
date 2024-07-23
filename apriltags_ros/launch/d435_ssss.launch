@@ -1,0 +1,35 @@
+<launch>
+  <arg name="kinect_name" default="kinectV2_1" />
+  <arg name="image_view" default="true" />
+  <arg name="inverse_tf" default="false" /> <!--inverse_tf will make tag becaome parent frame --> 
+
+  <node pkg="apriltags_ros" type="apriltag_detector_node" name="apriltag_detector_$(arg kinect_name)" output="screen">
+	<remap from="image_rect" to="/camera/color/image_raw" />
+  <remap from="camera_info" to="/camera/color/camera_info" />
+
+  <!-- <remap from="image_rect" to="/my_camera/image_rect_color" /> -->
+  <!-- <remap from="camera_info" to="/my_camera/camera_info" /> -->
+
+  
+
+    <param name="image_transport" type="str" value="raw" />
+    <param name="tag_family" type="str" value="36h11" />
+    <param name="camera_name" value="$(arg kinect_name)" />
+    <param name="projected_optics" type="bool" value="true" />
+    <param name="inverse_tf" type="bool" value="$(arg inverse_tf)" />
+
+    <rosparam param="tag_descriptions">[
+      {id: 0, size: 0.138, frame_id: tag0},
+      {id: 297, size: 0.08, frame_id: tag297}
+      ]
+    </rosparam>
+  </node>
+
+    <group if="$(arg image_view)">
+        <node name="image_view_$(arg kinect_name)" pkg="image_view" type="image_view" respawn="false" output="screen">
+            <remap from="image" to="/tag_detections_image" />
+        </node>
+    </group>
+    <node pkg="tf" type="static_transform_publisher" name="ptr_tf_node" args="0 -0.112 -0.0535 0 0 0 1 /tag19 /ptr 100" />
+
+</launch>

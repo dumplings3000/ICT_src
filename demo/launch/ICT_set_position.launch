@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="demo" type="ICT_set_position.py" name="ict_set_position_node" output="screen">
+  </node>
+</launch>

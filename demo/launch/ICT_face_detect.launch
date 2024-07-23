@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="demo" type="ICT_face_detect.py" name="ICT_face_detect_node" output="screen">
+  </node>
+</launch>
