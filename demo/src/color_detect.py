@@ -8,9 +8,10 @@ import cv_bridge
 import tf2_ros
 from tf.transformations import quaternion_matrix
 import message_filters
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import Int32
 from demo.srv import set_position, set_positionRequest
+from tm_msgs.msg import FeedbackState
 
 class Node1:
     def __init__(self):
@@ -20,10 +21,10 @@ class Node1:
         self.cv_bridge = cv_bridge.CvBridge()
 
         # Subscribe to the image topic
-        rgb_sub = message_filters.Subscriber(self.rgb_topic, Image)
-        depth_sub = message_filters.Subscriber(self.depth_topic, Image)
-        self.ts = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub], queue_size=1, slop=2)
-        self.ts.registerCallback(self.topic_callback)
+        self.rgb_topic = rospy.get_param('~rgb_topic', '/camera/color/image_raw')
+        self.depth_topic = rospy.get_param('~depth_topic', '/camera/aligned_depth_to_color/image_raw')
+        self.camera_info_topic = rospy.get_param("~camera_info", "/camera/color/camera_info")
+        rospy.wait_for_service('/move_to_goal')
         self.move_to_goal_client = rospy.ServiceProxy("/move_to_goal", set_position)
         rospy.Subscriber('/start', Int32, self.decision_callback)
 
@@ -39,90 +40,115 @@ class Node1:
         self.lower_green = np.array([25, 20, 75])
         self.upper_green = np.array([50, 255, 255])
         # Blue
-        self.lower_blue = np.array([90, 120, 50])
-        self.upper_blue = np.array([130, 230, 255])
+        self.lower_blue = np.array([90, 50, 50])
+        self.upper_blue = np.array([130, 255, 255])
 
         self.color_to_point = {
-            'red': (10, 20),
-            'blue': (30, 40),
-            'green': (50, 60)
+            'red': [0.4544473571777344, 0.6317485961914063],
+            'blue': [0.4544473571777344, 0.7317485961914063],
+            'green': [0.4544473571777344, 0.5317485961914063]
             }
 
         # target parameters
+        self.n_instances = 0  # number of detected objects
         self.mask_list = []  # list of masks of detected objects
         self.target_center = None  # center of target object
-        self.target_pointcloud = None  # point cloud of target object
         self.target_color = None  # color of target object
         self.target_pose = [10.0] * 6
         
         self.o3d_camera_intrinsic = None  # camera intrinsic parameters
-        # self.init_observe_pose_joint = [-1.6346607939477598, 0.11474589083353559, -1.36259891488799, -0.32196475748740616, -1.5711840830496122, -0.08652954928133474]
-        # self.init_grasp_pose = [-0.45866827392578126, 0.43749786376953126, 0.19912411499023438, -3.14, 0, -1.57]
-        self.init_observe_pose_cartesian = [-1.5746906672569194, 0.21244009383951182, -1.645535146468826, -0.13358555843794687, -1.5712132446635485, -0.003277340392985478]
-        self.init_grasp_pose_cartesian = [-0.45866827392578126, 0.43749786376953126, 0.19912411499023438, -3.14, 0, -1.57]
+        self.init_observe_pose = [-1.522882330358845, -0.13996572675096333, -1.4681066993742042, 0.03937656777153009, -1.5694194725113255, 0.04696874901902001]
+        self.init_grasp_pose = [-1.522882330358845, -0.13996572675096333, -1.4681066993742042, 0.03937656777153009, -1.5694194725113255, 0.04696874901902001]
         self.mode = 0 # 0 is observe, 1 is pre-grasp, 2 is grasp
-        self.flag = False
-        self.done = False
-
-    def descision_callback(self, msg):
+    
+    def decision_callback(self, msg):
         self.mode = msg.data
-        grasp_pose = [0,0,0,-3.14, 0, -1.57]
+        place_pose = [0, 0, 0, -3.14, 0, 3.14]
         while(1): 
-
             if self.mode == 0:# observe
-                self.request(1, self.init_observe_pose_cartesian, 2)
-                self.flag = True
-                if self.done == True:
-                    self.done = False
-                    self.mode = 1
+                self.request(0, self.init_observe_pose, 1)
+                print("done mode0")
+                self.get_target_pose()
+                if self.n_instances == 0:
+                    break
+                self.mode = 1
 
             elif self.mode == 1:# pre-grasp
-                pre_grasp_pose = self.target_pose
-                pre_grasp_pose[2] = pre_grasp_pose[2] + 0.02
-                self.request(1, pre_grasp_pose, 2)
+                pre_grasp_pose = self.target_pose.copy()
+                pre_grasp_pose[2] = self.target_pose[2] + 0.04
+                print("pre_grasp_pose", pre_grasp_pose)
+                self.request(0, pre_grasp_pose, 2)
+                print("done mode 1")
                 self.mode = 2
                 
             elif self.mode == 2:# grasp
-                self.request(0, self.target_pose, 2)
-                self.request(0, self.init_grasp_pose_cartesian, 2)
+                self.request(1, self.target_pose, 2)
+                print("done grasp_pose")
+                self.request(1, self.init_grasp_pose, 1)
+                print("done mode 2")
                 self.mode = 3
 
             elif self.mode == 3:# pre-place
-                grasp_pose[0],grasp_pose[1] = self.color_to_point[self.target_color]
-                grasp_pose[2] = self.target_center[2] + 0.04
-                self.request(0, grasp_pose, 2)
+                place_pose[0],place_pose[1] = self.color_to_point[self.target_color]
+                place_pose[2] = self.target_pose[2].copy() + 0.04
+                self.request(1, place_pose, 2)
+                print("done mode 3")
                 self.mode = 4
 
             elif self.mode == 4:# place
-                grasp_pose[0],grasp_pose[1] = self.color_to_point[self.target_color]
-                grasp_pose[2] = self.target_center[2] + 0.02
-                self.request(1, grasp_pose, 2)
-                self.mode = 0
+                place_pose[0],place_pose[1] = self.color_to_point[self.target_color]
+                place_pose[2] = self.target_pose[2].copy()
+                self.request(0, place_pose, 2)
+                print("done mode 4")
+                self.mode = 5
 
-    def topic_callback(self, rgb_msg, depth_msg):
-        if self.flag == True:
-            try:
-                rgb_img = self.cv_bridge.imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
-                depth_img = self.cv_bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
+            elif self.mode == 5:
+                place_pose[0],place_pose[1] = self.color_to_point[self.target_color]
+                place_pose[2] = self.target_pose[2].copy() + 0.04
+                self.request(0, place_pose, 2)
+                self.color_to_point[self.target_color][0] -= 0.06
+                print("done mode 5")
+                self.mode = 0
+            else:
+                break
+
+    def get_target_pose(self):
+        try:
+            self.target_pose = [0] * 6
+            while all(x == 0 for x in self.target_pose[:2]):
+                self.n_instances = 0
+                while self.n_instances == 0:
+                    rgb_msg = rospy.wait_for_message(self.rgb_topic, Image, timeout=1)
+                    depth_msg = rospy.wait_for_message(self.depth_topic, Image, timeout=1)
+                    rgb_img = self.cv_bridge.imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
+                    self.mask_list = self.detect_color(rgb_img)
+                    print("finised detect color")
+                depth_img = self.cv_bridge.imgmsg_to_cv2(depth_msg, desired_encoding='32FC1')
                 ori_H, ori_W, _ = rgb_img.shape
-                T = self.get_transform(depth_msg)
+                self.H, self.W, _= rgb_img.shape
+                camera_info = rospy.wait_for_message(self.camera_info_topic, CameraInfo)
+                self.K = np.array(camera_info.K)
+                # self.o3d_camera_intrinsic = o3d.camera.PinholeCameraIntrinsic(
+                #                         self.W, self.H,
+                #                         self.K[0] * self.W / ori_W,
+                #                         self.K[4] * self.H / ori_H, 
+                #                         self.K[2], self.K[5])
                 self.o3d_camera_intrinsic = o3d.camera.PinholeCameraIntrinsic(
                                         640, 480,
-                                        617.0441284179688*640/ori_W,
+                                        617.0441284179688*640/ori_W,  
                                         617.0698852539062*480/ori_H,
                                         322.3338317871094, 238.7687225341797)
-                self.mask_list = self.detect_color(rgb_img)
-                self.target_center, self.target_color = self.deside_target_object(rgb_img, depth_img, T)
-                self.target_pose = [self.target_center[0], self.target_center[1], self.target_center[2] + 0.02 , -3.14, 0, -1.57]
-                self.flag = False
-                self.done = True
+                T = self.get_transform(depth_msg)
+                self.target_center, self.target_color = self.decide_target_object(rgb_img, depth_img, T)
+                print("finised decide target object")
+                self.target_pose = [self.target_center[0], self.target_center[1], self.target_center[2] + 0.11 , -3.14, 0, 3.14]
+            print("target_pose", self.target_pose)
 
-            except Exception as e:
-                rospy.logerr("Error processing image: {}".format(str(e)))
+        except Exception as e:
+            rospy.logerr("Error processing image: {}".format(str(e)))
     
     def detect_color(self, img):
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
         # mask create
         blue_mask = cv2.inRange(hsv, self.lower_blue, self.upper_blue)
         green_mask = cv2.inRange(hsv, self.lower_green, self.upper_green)
@@ -156,6 +182,26 @@ class Node1:
             cv2.drawContours(mask, [contour], -1, 255, -1)
             mask_list.append((mask, 'green'))
 
+        self.n_instances = len(mask_list)
+
+        print("n_instances", self.n_instances)
+
+        # # Create an output image
+        # output_img = img.copy()
+
+        # # Display each mask on the image
+        # for mask, color in mask_list:
+        #     if color == 'blue':
+        #         output_img[mask == 255] = [255, 0, 0]  # Blue color
+        #     elif color == 'red':
+        #         output_img[mask == 255] = [0, 0, 255]  # Red color
+        #     elif color == 'green':
+        #         output_img[mask == 255] = [0, 255, 0]  # Green color
+        
+        # cv2.imshow('Detected Colors', output_img)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+
         return mask_list
     
     def get_transform(self, depth_msg):
@@ -178,16 +224,17 @@ class Node1:
             rospy.logerr("Failed to transform point cloud: {}".format(e))
             return
         
-    def deside_target_object(self, rgb_img, depth_img, T):
+    def decide_target_object(self, rgb_img, depth_img, T):
         pointcloud_list = []
-        for i in range(self.mask_list):
+        dis_list = []  
+        for i in range(self.n_instances):
             mask = np.array(self.mask_list[i][0]).astype(int)
-            un_depth_img = unnormalize_depth(depth_img)
-            un_depth_img[np.logical_not(mask)] = 0
+            depth_img_copy = depth_img.copy()
+            depth_img_copy[np.logical_not(mask)] = 0
             kernel = np.ones((3, 3), np.uint8)
-            un_depth_img = cv2.erode(un_depth_img, kernel, iterations=1)
+            depth_img_copy = cv2.erode(depth_img_copy, kernel, iterations=1)
             o3d_rgb_img = o3d.geometry.Image(rgb_img)
-            o3d_depth_img = o3d.geometry.Image(un_depth_img)
+            o3d_depth_img = o3d.geometry.Image(depth_img_copy)
             rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(o3d_rgb_img, o3d_depth_img)
 
             o3d_pc = o3d.geometry.PointCloud.create_from_rgbd_image(
@@ -195,13 +242,43 @@ class Node1:
             sampled_pc = np.asarray(o3d_pc.points)
             sampled_o3d_pc = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(sampled_pc))
             pcd_filtered, _ = sampled_o3d_pc.remove_statistical_outlier(nb_neighbors=40, std_ratio=1.5)
+            pcd_filtered = pcd_filtered.transform(T)
             pointcloud_list.append(pcd_filtered)
 
-        dis_list = [np.linalg.norm(x.get_center()) for x in pointcloud_list]  # get distance between point cloud and origina
+            # print("the number of i :",i+1)
+            # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0])
+            # o3d.visualization.draw_geometries([pcd_filtered, axis])
+        
+        # combined_pcd = o3d.geometry.PointCloud()
+        # for pcd in pointcloud_list:
+        #     combined_pcd += pcd
+        # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0])
+        # o3d.visualization.draw_geometries([combined_pcd, axis])
+
+        dis_list = [np.linalg.norm(x.get_center()) for x in pointcloud_list]  # get distance between point cloud and origin
+        print("distance list", dis_list)
         index = np.argmin(dis_list)  # choose the closet one as target
-        target_pointcloud = pointcloud_list[index].transform(T)  # convert the target point cloud to world frame
+        print("target index", index)
+
+        # target_pointcloud = pointcloud_list[index].transform(T)  # convert the target point cloud to world frame
+        target_pointcloud = pointcloud_list[index]
         target_center = target_pointcloud.get_center()  # get point center of target point cloud in world frame
+        print("target_center", target_center)
+        T_inv = np.linalg.inv(T)
+        two_d_target_pointcloud = target_pointcloud.transform(T_inv)
+        two_d_target_center = two_d_target_pointcloud.get_center()
+        print("two_d_target_center", two_d_target_center)
+        target_center[0] -= 0.025 
+        if two_d_target_center[0] > 0.05 :
+            target_center[0] = target_center[0]
+        elif two_d_target_center[0] < -0.05 :
+            target_center[0] = target_center[0]
         target_color  = self.mask_list[index][1]  # get color of target object
+        print("target_color", target_color)
+        # # 顯示點雲和座標軸
+        # print("after tranform target_center", target_center)
+        # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0])
+        # o3d.visualization.draw_geometries([target_pointcloud, axis])
 
         return target_center, target_color
     
@@ -210,13 +287,12 @@ class Node1:
         req.type = type
         req.value = pose
         res = self.move_to_goal_client(req)
-        print(f"pose control: : {res}")
+        print(f"mode : {self.mode} ,pose control: {res.response}")
 
-        req.value = grasp
+        req.value = [grasp]
         res = self.move_to_goal_client(req)
-        print(f"gripper control: {res}")
-
-
+        print(f"mode : {self.mode} ,gripper control: {res}")
+    
 if __name__ == '__main__':
     try:
         node = Node1()

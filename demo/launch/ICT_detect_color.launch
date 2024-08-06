@@ -1,0 +1,6 @@
+<launch>
+  <include file="$(find demo)/launch/ICT_position_service.launch">
+  </include>
+  <node pkg="demo" type="color_detect.py" name="color_detectnode" output="screen">
+  </node>
+</launch>
