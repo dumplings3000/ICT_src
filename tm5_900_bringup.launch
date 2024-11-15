@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<!--
+  Techman robot tm5_900 launch.
+  Usage:
+    tm5_900_bringup.launch robot_ip:=<value>
+-->
+<launch>
+
+  <arg name="model" />
+  <arg name="stl_mesh" default="false" />
+  <param name="robot_description" command="xacro '$(find tm_description)/xacro/tm5-900.urdf.xacro' stl_mesh:=$(arg stl_mesh)"/>
+
+  <!-- <node name="tm_state_publisher" pkg="tm_driver" type="tm_state_publisher" /> -->
+
+  <!-- robot_ip: IP-address of the robot's socket-messaging server -->
+  <arg name="prefix" default="" />
+  <!-- <arg name="robot_ip"  default="192.168.1.43"/> -->
+  <!-- <arg name="robot_ip"  default="192.168.10.2"/> -->
+  <arg name="robot_ip"  default="192.168.10.13"/>
+  <arg name="min_payload" default="0.0" />
+  <arg name="max_payload" default="4.0" />
+
+  <!-- robot model -->
+  <!--
+  <include file="$(find tm5_description)/launch/tm5_900_upload.launch">
+  </include>
+  -->
+
+  <!-- tm common -->
+  <include file="$(find tm_driver)/launch/tm_common.launch">
+    <arg name="prefix"  value="$(arg prefix)" />
+    <arg name="robot_ip" value="$(arg robot_ip)" />
+    <arg name="min_payload" value="$(arg min_payload)" />
+    <arg name="max_payload" value="$(arg max_payload)" />
+  </include>
+  <!-- <node pkg="tf" type="static_transform_publisher" name="camera_to_flange"  args=" 0.019572768740986055 0.154695155435312 0.022992516249570022 -0.4912743576557711 -0.51824684548311 -0.4969641214060129 0.4930480450137339 /flange_link /camera_link 100" /> -->
+  <!-- <node pkg="tf" type="static_transform_publisher" name="camera_to_flange"  args=" 0.028572768740986055 0.144695155435312 0.022992516249570022 -0.4912743576557711 -0.51824684548311 -0.4969641214060129 0.4930480450137339 /flange_link /camera_link 100" /> -->
+
+  <!-- <node pkg="tf" type="static_transform_publisher" name="camera_to_flange"  args=" 0.022726533866413268 0.1618825342012984 0.03722879965063104 -0.4972887964468281 -0.4980501823396971 -0.4908590235858932 0.5135243789384911 /flange_link /camera_link 100" /> -->
+	<!-- <node pkg="tf" type="static_transform_publisher" name="camera_to_flange"  args=" 0.022726533866413268 0.1618825342012984 0.01722879965063104 -0.4972887964468281 -0.4980501823396971 -0.4908590235858932 0.5135243789384911 /flange_link /camera_link 100" /> -->
+  <node pkg="tf" type="static_transform_publisher" name="camera_to_flange"  args=" 0.005559119882782168 0.14295799621219063 0.02392662283644581  -0.4937475332494755 -0.5132883678752609 -0.4935095091216072 0.49919614303453824 /flange_link /camera_link 100" />
+  <node pkg="tf" type="static_transform_publisher" name="flange_to_gripper" args="0 0 0.085 0 0 0 /flange_link /gripper 100" />
+  <!-- Visualize gripper -->
+  <!-- <node pkg="tf" type="static_transform_publisher" name="gper"  args=" 0 0 0.222 0 0 0 1 /flange_link /gripper 100" />
+  <node pkg="tf" type="static_transform_publisher" name="gper_visual"  args=" 0 0 -0.222 0 0 0 1 /gripper /gper_visual 100" /> -->
+  <!-- <node pkg="tf" type="static_transform_publisher" name="gper_visual"  args=" 0 0 -0.22 0 0 0 1 /gripper_link /gper_visual 100" /> -->
+  <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d tm.rviz" required = "true" /> -->
+ㄋ
+</launch>
